@@ -40,11 +40,15 @@ void wifi_init_softap(void);
 
 
 // SPI Pins
-#define SPI_MOSI 23
-#define SPI_MISO 19
-#define SPI_SCLK 18
-#define SPI_CS 5
-#define SPI_FREQ_HZ 5000000  // 10 MHz as requested
+//#define SPI_MOSI 23  // legacy pins
+//#define SPI_MISO 19
+#define SPI_SCLK 14
+#define SPI_CS 15
+#define SPI_DQ0 13
+#define SPI_DQ1 10
+#define SPI_DQ2 12
+#define SPI_DQ3 11
+#define SPI_FREQ_HZ 5000000  // 5 MHz
 #define SPI_MODE 0
 
 
@@ -436,11 +440,13 @@ void app_main(void) {
 
     // Initialize SPI master for communication with FPGA
     spi_bus_config_t buscfg = {
-        .mosi_io_num = SPI_MOSI,
-        .miso_io_num = SPI_MISO,
+        .mosi_io_num = -1,
+        .miso_io_num = -1,
         .sclk_io_num = SPI_SCLK,
-        .quadwp_io_num = 22,    // QUADWP / SPI-DQ2
-        .quadhd_io_num = 21,    // SPI-DQ3
+        .data0_io_num = SPI_DQ0,
+        .data1_io_num = SPI_DQ1,
+        .data2_io_num = SPI_DQ2,
+        .data3_io_num = SPI_DQ3,
         .max_transfer_sz = 4096,
         .flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_QUAD | SPICOMMON_BUSFLAG_IOMUX_PINS,
         .intr_flags = 0
@@ -458,7 +464,7 @@ void app_main(void) {
         .spics_io_num = SPI_CS,
         .cs_ena_pretrans = 0,
         .cs_ena_posttrans = 0,
-        .queue_size = 1,
+        .queue_size = 10,  // Use a reasonable queue size for SPI transactions
         .flags = 0,
         .pre_cb = NULL,
         .post_cb = NULL

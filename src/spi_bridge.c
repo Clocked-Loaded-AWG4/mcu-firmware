@@ -251,9 +251,9 @@ static void send_spi_frame_bytes(const uint8_t *frame_buffer, int frame_len)
     spi_transaction_t trans = {
         .flags     = SPI_TRANS_MODE_QIO,  // Quad mode for full functionality
         .tx_buffer = frame_buffer,
-        .rx_buffer = NULL,
+        .rx_buffer = dummy_rx,
         .length    = frame_len * 8,
-        .rxlength  = 0,  // Match length for full-duplex
+        .rxlength  = frame_len * 8,  // Match length for full-duplex
     };
 
 
