@@ -57,6 +57,10 @@ void wifi_init_softap(void);
 #define LED_G_GPIO 4
 #define LED_B_GPIO 16
 
+// GPIO Pins for enable lines for each DAC
+#define DAC_ENABLE_0 47
+#define DAC_ENABLE_1 48
+
 
 // Logging tag for console output
 static const char *TAG = "WEBSOCKET_SERVER";
@@ -278,7 +282,7 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                             ESP_LOGE(TAG, "Invalid waveform points: %u (max 256)", w->num_points);
                             flash_led(1, 0, 0, 1000);  // Red flash
                         } else {
-                            uint16_t channel = packet.reserved;
+                            uint16_t channel = packet.channel;
                             if (channel > 1) {
                                 ESP_LOGE(TAG, "Invalid channel: %u", channel);
                                 flash_led(1, 0, 0, 1000);  // Red flash
@@ -306,6 +310,34 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                                     free(samples);
                                 }
                             }
+                        }
+                    }
+                    break;
+                case TRANSMISSION_TYPE_TOGGLE:
+                    {
+                        uint8_t value = packet.payload.toggle_payload.value;
+                        ESP_LOGI(TAG, "Received toggle value: %u", value);
+                        if (value != 0 && value != 255) {
+                            ESP_LOGE(TAG, "Invalid toggle value: %u (must be 0 or 255)", value);
+                            flash_led(1, 0, 0, 1000);  // Red flash
+                        } else {
+                            if (packet.channel == 0) {
+                                // Toggle DAC 0
+                                gpio_set_level(DAC_ENABLE_0, (value == 0) ? 1 : 0);  // Active low
+                                ESP_LOGI(TAG, "DAC 0 %s", (value == 0) ? "disabled" : "enabled");
+                            } else if (packet.channel == 1) {
+                                // Toggle DAC 1
+                                gpio_set_level(DAC_ENABLE_1, (value == 0) ? 1 : 0);  // Active low
+                                ESP_LOGI(TAG, "DAC 1 %s", (value == 0) ? "disabled" : "enabled");
+                            } else {
+                                ESP_LOGE(TAG, "Invalid DAC channel for toggle: %u", packet.channel);
+                                flash_led(1, 0, 0, 1000);  // Red flash
+                                break;
+                            }
+                            // Handle the toggle action here
+                            // For example, enable/disable a feature based on the value
+                            ESP_LOGI(TAG, "Toggle action executed for value: %u", value);
+                            flash_led(0, 0, 1, 500);  // Blue on success
                         }
                     }
                     break;
@@ -428,6 +460,13 @@ void app_main(void) {
     gpio_set_direction(LED_R_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_direction(LED_G_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_direction(LED_B_GPIO, GPIO_MODE_OUTPUT);
+
+    // Initialize DAC enable GPIOs
+    gpio_set_direction(DAC_ENABLE_0, GPIO_MODE_OUTPUT);
+    gpio_set_direction(DAC_ENABLE_1, GPIO_MODE_OUTPUT);
+    gpio_set_level(DAC_ENABLE_0, 1);  // Start with DACs disabled
+    gpio_set_level(DAC_ENABLE_1, 1);
+
     set_led_color(0, 0, 0);  // Start off
 
 
