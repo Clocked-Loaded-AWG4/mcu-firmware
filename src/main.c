@@ -1,6 +1,6 @@
 // main.c
 #include <stdio.h>
-#include <string.h>
+#include <string.h>  // Added for strlen
 #include <stdlib.h>  // For malloc/free
 #include <inttypes.h>  // For PRId16
 #include <math.h>  // For roundf (optional)
@@ -34,8 +34,8 @@ void wifi_init_softap(void);
 // --- Configuration ---
 // Wi-Fi Access Point configuration
 #define ESP_WIFI_SSID      "CL_AWG_NET" // The name of the Wi-Fi network
-#define ESP_WIFI_PASS      "CL_AWG_NET_A"           // The password for the Wi-Fi network
-#define ESP_WIFI_CHANNEL   1                       // Wi-Fi channel
+#define ESP_WIFI_PASS      ""           // The password for the Wi-Fi network
+#define ESP_WIFI_CHANNEL   6                       // Wi-Fi channel
 #define MAX_STA_CONN       4                       // Maximum number of connected clients
 
 
@@ -171,7 +171,7 @@ void plot_waveform(const int16_t *data, uint32_t num_points) {
 
 
     // Log the plot
-    ESP_LOGI(TAG, "Waveform plot (min: %" PRId16 ", max: %" PRId16 ", points: %u):", min_val, max_val, num_points);
+    ESP_LOGI(TAG, "Waveform plot (min: %" PRId16 ", max: %" PRId16 ", points: %lu):", min_val, max_val, (unsigned long)num_points);
     for (int row = 0; row <= height; row++) {
         ESP_LOGI(TAG, "%s", lines[row]);
     }
@@ -255,12 +255,9 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                                         flash_led(1, 0, 0, 1000);
                                         spi_bridge_clear_error();
                                     } else {
-                                        flash_led(0, 0, 1, 500);  // Blue on success
+                                        flash_led(0, 1, 0, 500);  // Green on success (added for consistency)
                                     }
                                 }
-                            } else {
-                                ESP_LOGE(TAG, "Failed to parse frequency JSON: %s", json);
-                                flash_led(1, 0, 0, 1000);
                             }
                         }
                     }
@@ -275,7 +272,7 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                         WaveformPayload *w = &packet.payload.waveform_payload;
                         plot_waveform(w->data_points, w->num_points);
                         if (w->num_points > 256) {
-                            ESP_LOGE(TAG, "Invalid waveform points: %u (max 256)", w->num_points);
+                            ESP_LOGE(TAG, "Invalid waveform points: %lu (max 256)", (unsigned long)w->num_points);
                             flash_led(1, 0, 0, 1000);  // Red flash
                         } else {
                             uint16_t channel = packet.reserved;
@@ -358,7 +355,11 @@ static httpd_handle_t start_webserver(void) {
  * @brief Event handler for Wi-Fi events (client connect/disconnect).
  */
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
-    if (event_id == WIFI_EVENT_AP_STACONNECTED) {
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_START) {
+        ESP_LOGI(TAG, "WiFi AP started successfully");
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STOP) {
+        ESP_LOGI(TAG, "WiFi AP stopped");
+    } else if (event_id == WIFI_EVENT_AP_STACONNECTED) {
         wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*) event_data;
         ESP_LOGI(TAG, "Client " MACSTR " connected, AID=%d", MAC2STR(event->mac), event->aid);
         flash_led(0, 1, 0, 500);  // Green flash on client connect
@@ -393,18 +394,24 @@ void wifi_init_softap(void) {
         .ap = {
             .ssid = ESP_WIFI_SSID,
             .ssid_len = strlen(ESP_WIFI_SSID),
-            .channel = ESP_WIFI_CHANNEL,
+            .channel = 1,  // Changed to channel 1
             .password = ESP_WIFI_PASS,
             .max_connection = MAX_STA_CONN,
-            .authmode = WIFI_AUTH_WPA_WPA2_PSK
+            .authmode = WIFI_AUTH_OPEN,
+            .ssid_hidden = 0,  // Explicitly visible
+            .beacon_interval = 100  // Standard beacon interval (ms)
         },
     };
 
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_set_country_code("01", true));  // Worldwide, enables all channels
     ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));  // Disable power save
+    ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(84));  // Max TX power (21dBm)
 
+    vTaskDelay(pdMS_TO_TICKS(1000));
 
     ESP_LOGI(TAG, "Wi-Fi SoftAP started. SSID: '%s' Password: '%s'",
              ESP_WIFI_SSID, ESP_WIFI_PASS);
@@ -440,15 +447,17 @@ void app_main(void) {
 
     // Initialize SPI master for communication with FPGA
     spi_bus_config_t buscfg = {
-        .mosi_io_num = -1,
-        .miso_io_num = -1,
+        .mosi_io_num = SPI_DQ0,
+        .miso_io_num = SPI_DQ1,
+        .quadwp_io_num = SPI_DQ2,
+        .quadhd_io_num = SPI_DQ3,  
         .sclk_io_num = SPI_SCLK,
-        .data0_io_num = SPI_DQ0,
-        .data1_io_num = SPI_DQ1,
-        .data2_io_num = SPI_DQ2,
-        .data3_io_num = SPI_DQ3,
+        // .data0_io_num = SPI_DQ0,
+        // .data1_io_num = SPI_DQ1,
+        // .data2_io_num = SPI_DQ2,
+        // .data3_io_num = SPI_DQ3,
         .max_transfer_sz = 4096,
-        .flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_QUAD | SPICOMMON_BUSFLAG_IOMUX_PINS,
+        .flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_QUAD | SPICOMMON_BUSFLAG_GPIO_PINS,
         .intr_flags = 0
     };
     ESP_ERROR_CHECK(spi_bus_initialize(SPI3_HOST, &buscfg, SPI_DMA_CH_AUTO));  // Enable DMA for larger transfers
@@ -465,7 +474,7 @@ void app_main(void) {
         .cs_ena_pretrans = 0,
         .cs_ena_posttrans = 0,
         .queue_size = 10,  // Use a reasonable queue size for SPI transactions
-        .flags = 0,
+        .flags = SPI_DEVICE_HALFDUPLEX,
         .pre_cb = NULL,
         .post_cb = NULL
     };
@@ -474,6 +483,10 @@ void app_main(void) {
 
     // Initialize SPI bridge state
     spi_bridge_init();
+
+    // Infinite loop to keep main task alive (optional periodic logging)
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(10000));  // Delay 10s
+        // Optional: ESP_LOGI(TAG, "System running..."); // Uncomment for status
+    }
 }
-
-

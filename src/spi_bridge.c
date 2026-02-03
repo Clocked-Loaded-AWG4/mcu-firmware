@@ -164,8 +164,8 @@ void spi_bridge_set_frequency(
     c->freq_valid = true;
 
 
-    ESP_LOGI(TAG, "Channel %s: stored frequency %u Hz (from %.3f)",
-             (ch == SPI_CH_A) ? "A" : "B", freq_u32, frequency_hz);
+    ESP_LOGI(TAG, "Channel %s: stored frequency %lu Hz (from %.3f)",
+             (ch == SPI_CH_A) ? "A" : "B", (unsigned long)freq_u32, frequency_hz);
 }
 
 
