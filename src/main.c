@@ -326,7 +326,7 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                                 // Toggle DAC 0
                                 gpio_set_level(DAC_ENABLE_0, (value == 0) ? 1 : 0);  // Active low
                                 ESP_LOGI(TAG, "DAC 0 %s", (value == 0) ? "disabled" : "enabled");
-                            } else if (packet.channel == 1) {
+                            } else if (packet.channel == 65535) {
                                 // Toggle DAC 1
                                 gpio_set_level(DAC_ENABLE_1, (value == 0) ? 1 : 0);  // Active low
                                 ESP_LOGI(TAG, "DAC 1 %s", (value == 0) ? "disabled" : "enabled");
