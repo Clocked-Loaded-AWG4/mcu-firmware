@@ -90,7 +90,7 @@ ProtocolError parse_websocket_frame(const uint8_t* buffer, size_t buffer_size, P
     // No check for reserved_bytes == 0; use as parameter (e.g., channel)
     
     out_packet->type = (TransmissionType)type_identifier;
-    out_packet->reserved = reserved_bytes;
+    out_packet->channel = reserved_bytes;
     
     // --- Parse Payload ---
     const uint8_t* payload = buffer + PACKET_HEADER_SIZE;
@@ -125,6 +125,13 @@ ProtocolError parse_websocket_frame(const uint8_t* buffer, size_t buffer_size, P
             // Delegate to the specific waveform handler function
             return handle_waveform_payload(payload, payload_size, &out_packet->payload.waveform_payload);
 
+        case TRANSMISSION_TYPE_TOGGLE:
+            // Payload: one byte of either 0's or 1's
+            if (payload_size != 1) {
+                return ERROR_INVALID_PAYLOAD_FORMAT;
+            }
+            out_packet->payload.toggle_payload.value = payload[0];
+            break;
         default:
             out_packet->type = TRANSMISSION_TYPE_UNKNOWN;
             return ERROR_UNKNOWN_TRANSMISSION_TYPE;
@@ -150,6 +157,9 @@ void free_parsed_packet(ParsedPacket* packet) {
         case TRANSMISSION_TYPE_WAVEFORM:
             free(packet->payload.waveform_payload.data_points);
             packet->payload.waveform_payload.data_points = NULL;
+            break;
+        case TRANSMISSION_TYPE_TOGGLE:
+            // No dynamic memory to free for toggle payload
             break;
         default:
             // No memory was allocated for unknown types
