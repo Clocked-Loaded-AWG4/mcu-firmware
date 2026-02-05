@@ -479,36 +479,34 @@ void app_main(void) {
 
     // Initialize SPI master for communication with FPGA
     spi_bus_config_t buscfg = {
-        .mosi_io_num = -1,
-        .miso_io_num = -1,
-        .sclk_io_num = SPI_SCLK,
-        .data0_io_num = SPI_DQ0,
-        .data1_io_num = SPI_DQ1,
-        .data2_io_num = SPI_DQ2,
-        .data3_io_num = SPI_DQ3,
-        .max_transfer_sz = 4096,
-        .flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_QUAD | SPICOMMON_BUSFLAG_IOMUX_PINS,
-        .intr_flags = 0
-    };
-    ESP_ERROR_CHECK(spi_bus_initialize(SPI3_HOST, &buscfg, SPI_DMA_CH_AUTO));  // Enable DMA for larger transfers
+    .mosi_io_num = SPI_DQ0,
+    .miso_io_num = SPI_DQ1,
+    .quadwp_io_num = SPI_DQ2,
+    .quadhd_io_num = SPI_DQ3,  
+    .sclk_io_num = SPI_SCLK,
+    .max_transfer_sz = 4096,
+    .flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_QUAD | SPICOMMON_BUSFLAG_GPIO_PINS,
+    .intr_flags = 0
+};
+ESP_ERROR_CHECK(spi_bus_initialize(SPI3_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
 
-    spi_device_interface_config_t devcfg = {
-        .command_bits = 0,
-        .address_bits = 0,
-        .dummy_bits = 0,
-        .clock_speed_hz = SPI_FREQ_HZ,
-        .duty_cycle_pos = 0,
-        .mode = SPI_MODE,
-        .spics_io_num = SPI_CS,
-        .cs_ena_pretrans = 0,
-        .cs_ena_posttrans = 0,
-        .queue_size = 10,  // Use a reasonable queue size for SPI transactions
-        .flags = 0,
-        .pre_cb = NULL,
-        .post_cb = NULL
-    };
-    ESP_ERROR_CHECK(spi_bus_add_device(SPI3_HOST, &devcfg, &fpga_spi));
+spi_device_interface_config_t devcfg = {
+    .command_bits = 0,
+    .address_bits = 0,
+    .dummy_bits = 0,
+    .clock_speed_hz = SPI_FREQ_HZ,
+    .duty_cycle_pos = 0,
+    .mode = SPI_MODE,
+    .spics_io_num = SPI_CS,
+    .cs_ena_pretrans = 0,
+    .cs_ena_posttrans = 0,
+    .queue_size = 10,
+    .flags = SPI_DEVICE_HALFDUPLEX,  // Add this: Enables half-duplex for multi-line
+    .pre_cb = NULL,
+    .post_cb = NULL
+};
+ESP_ERROR_CHECK(spi_bus_add_device(SPI3_HOST, &devcfg, &fpga_spi));
 
 
     // Initialize SPI bridge state
