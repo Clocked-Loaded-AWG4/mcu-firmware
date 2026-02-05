@@ -279,7 +279,7 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                             flash_led(1, 0, 0, 1000);  // Red flash
                         } else {
                             uint16_t channel = packet.reserved;
-                            if (channel > 1) {
+                            if (channel != 0 && channel != 65535) {
                                 ESP_LOGE(TAG, "Invalid channel: %u", channel);
                                 flash_led(1, 0, 0, 1000);  // Red flash
                             } else {
@@ -309,6 +309,7 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                         }
                     }
                     break;
+                
                 default:
                     ESP_LOGW(TAG, "Unknown transmission type: 0x%04X", packet.type);
                     break;
