@@ -270,9 +270,42 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                     }
                     break;
                 case TRANSMISSION_TYPE_BYTES:
-                    ESP_LOGI(TAG, "Received bytes (%zu bytes)", packet.payload.bytes_payload.length);
-                    ESP_LOG_BUFFER_HEX(TAG, packet.payload.bytes_payload.data, packet.payload.bytes_payload.length);
-                    flash_led(0, 1, 0, 500);  // Green flash
+                    {
+                        ESP_LOGI(TAG, "Received bytes (%zu bytes)", packet.payload.bytes_payload.length);
+                        ESP_LOG_BUFFER_HEX(TAG, packet.payload.bytes_payload.data,
+                                           packet.payload.bytes_payload.length);
+
+                        // We treat a TRANSMISSION_TYPE_BYTES packet as "binary frequency"
+                        // (8-byte double, same endianness as the ESP32 = little-endian).
+                        if (packet.payload.bytes_payload.length == sizeof(double)) {
+                            double frequency_hz;
+                            memcpy(&frequency_hz, packet.payload.bytes_payload.data, sizeof(double));
+
+                            uint16_t channel = packet.channel;
+                            if (channel > 1) {
+                                ESP_LOGE(TAG, "Invalid channel in bytes frequency: %hu", channel);
+                                flash_led(1, 0, 0, 1000);
+                            } else {
+                                spi_channel_t ch = (channel == 0) ? SPI_CH_A : SPI_CH_B;
+
+                                spi_bridge_set_frequency(ch, frequency_hz);
+                                spi_bridge_process_frequency(ch);
+
+                                const char *err_str = spi_bridge_get_last_error();
+                                if (err_str[0] != '\0') {
+                                    ESP_LOGE(TAG, "SPI bridge error: %s", err_str);
+                                    flash_led(1, 0, 0, 1000);
+                                    spi_bridge_clear_error();
+                                } else {
+                                    flash_led(0, 0, 1, 500);  // Blue = success
+                                }
+                            }
+                        } else {
+                            ESP_LOGE(TAG, "Bytes payload length %zu is not 8 (expected double frequency)",
+                                     packet.payload.bytes_payload.length);
+                            flash_led(1, 0, 0, 1000);
+                        }
+                    }
                     break;
                 case TRANSMISSION_TYPE_WAVEFORM:
                     {
