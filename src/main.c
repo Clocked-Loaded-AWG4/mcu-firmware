@@ -42,24 +42,24 @@ void wifi_init_softap(void);
 // SPI Pins
 //#define SPI_MOSI 23  // legacy pins
 //#define SPI_MISO 19
-#define SPI_SCLK 14
-#define SPI_CS 15
-#define SPI_DQ0 13
-#define SPI_DQ1 10
-#define SPI_DQ2 12
-#define SPI_DQ3 11
+#define SPI_SCLK 14 // 22 on board
+#define SPI_CS 15 // 8 on board
+#define SPI_DQ0 13 // 21 on board
+#define SPI_DQ1 10 // 18 on board
+#define SPI_DQ2 12 // 20 on board
+#define SPI_DQ3 11 // 19 on board
 #define SPI_FREQ_HZ 5000000  // 5 MHz
 #define SPI_MODE 0
 
 
 // RGB LED Pins
-#define LED_R_GPIO 2
-#define LED_G_GPIO 4
-#define LED_B_GPIO 16
+#define LED_R_GPIO 2 // 9 on board
+#define LED_G_GPIO 4 // 10 on board
+#define LED_B_GPIO 16 // 23 on board
 
 // GPIO Pins for enable lines for each DAC
-#define DAC_ENABLE_0 47
-#define DAC_ENABLE_1 48
+#define DAC_ENABLE_0 47 //24 on board
+#define DAC_ENABLE_1 48 // 25 on board
 
 
 // Logging tag for console output
