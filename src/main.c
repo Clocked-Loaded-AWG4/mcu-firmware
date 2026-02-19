@@ -40,18 +40,26 @@ void wifi_init_softap(void);
 
 
 // SPI Pins
-#define SPI_MOSI 23
-#define SPI_MISO 19
-#define SPI_SCLK 18
-#define SPI_CS 5
-#define SPI_FREQ_HZ 5000000  // 10 MHz as requested
+//#define SPI_MOSI 23  // legacy pins
+//#define SPI_MISO 19
+#define SPI_SCLK 14 // 22 on board
+#define SPI_CS 15 // 8 on board
+#define SPI_DQ0 13 // 21 on board
+#define SPI_DQ1 10 // 18 on board
+#define SPI_DQ2 12 // 20 on board
+#define SPI_DQ3 11 // 19 on board
+#define SPI_FREQ_HZ 5000000  // 5 MHz
 #define SPI_MODE 0
 
 
 // RGB LED Pins
-#define LED_R_GPIO 2
-#define LED_G_GPIO 4
-#define LED_B_GPIO 16
+#define LED_R_GPIO 2 // 9 on board
+#define LED_G_GPIO 4 // 10 on board
+#define LED_B_GPIO 16 // 23 on board
+
+// GPIO Pins for enable lines for each DAC
+#define DAC_ENABLE_0 47 //24 on board
+#define DAC_ENABLE_1 48 // 25 on board
 
 
 // Logging tag for console output
@@ -262,9 +270,42 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                     }
                     break;
                 case TRANSMISSION_TYPE_BYTES:
-                    ESP_LOGI(TAG, "Received bytes (%zu bytes)", packet.payload.bytes_payload.length);
-                    ESP_LOG_BUFFER_HEX(TAG, packet.payload.bytes_payload.data, packet.payload.bytes_payload.length);
-                    flash_led(0, 1, 0, 500);  // Green flash
+                    {
+                        ESP_LOGI(TAG, "Received bytes (%zu bytes)", packet.payload.bytes_payload.length);
+                        ESP_LOG_BUFFER_HEX(TAG, packet.payload.bytes_payload.data,
+                                           packet.payload.bytes_payload.length);
+
+                        // We treat a TRANSMISSION_TYPE_BYTES packet as "binary frequency"
+                        // (8-byte double, same endianness as the ESP32 = little-endian).
+                        if (packet.payload.bytes_payload.length == sizeof(double)) {
+                            double frequency_hz;
+                            memcpy(&frequency_hz, packet.payload.bytes_payload.data, sizeof(double));
+
+                            uint16_t channel = packet.channel;
+                            if (channel > 1) {
+                                ESP_LOGE(TAG, "Invalid channel in bytes frequency: %hu", channel);
+                                flash_led(1, 0, 0, 1000);
+                            } else {
+                                spi_channel_t ch = (channel == 0) ? SPI_CH_A : SPI_CH_B;
+
+                                spi_bridge_set_frequency(ch, frequency_hz);
+                                spi_bridge_process_frequency(ch);
+
+                                const char *err_str = spi_bridge_get_last_error();
+                                if (err_str[0] != '\0') {
+                                    ESP_LOGE(TAG, "SPI bridge error: %s", err_str);
+                                    flash_led(1, 0, 0, 1000);
+                                    spi_bridge_clear_error();
+                                } else {
+                                    flash_led(0, 0, 1, 500);  // Blue = success
+                                }
+                            }
+                        } else {
+                            ESP_LOGE(TAG, "Bytes payload length %zu is not 8 (expected double frequency)",
+                                     packet.payload.bytes_payload.length);
+                            flash_led(1, 0, 0, 1000);
+                        }
+                    }
                     break;
                 case TRANSMISSION_TYPE_WAVEFORM:
                     {
@@ -274,8 +315,8 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                             ESP_LOGE(TAG, "Invalid waveform points: %u (max 256)", w->num_points);
                             flash_led(1, 0, 0, 1000);  // Red flash
                         } else {
-                            uint16_t channel = packet.reserved;
-                            if (channel > 1) {
+                            uint16_t channel = packet.channel;
+                            if (channel != 0 && channel != 65535) {
                                 ESP_LOGE(TAG, "Invalid channel: %u", channel);
                                 flash_led(1, 0, 0, 1000);  // Red flash
                             } else {
@@ -302,6 +343,35 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                                     free(samples);
                                 }
                             }
+                        }
+                    }
+                    break;
+                
+                case TRANSMISSION_TYPE_TOGGLE:
+                    {
+                        uint8_t value = packet.payload.toggle_payload.value;
+                        ESP_LOGI(TAG, "Received toggle value: %u", value);
+                        if (value != 0 && value != 255) {
+                            ESP_LOGE(TAG, "Invalid toggle value: %u (must be 0 or 255)", value);
+                            flash_led(1, 0, 0, 1000);  // Red flash
+                        } else {
+                            if (packet.channel == 0) {
+                                // Toggle DAC 0
+                                gpio_set_level(DAC_ENABLE_0, (value == 0) ? 1 : 0);  // Active low
+                                ESP_LOGI(TAG, "DAC 0 %s", (value == 0) ? "disabled" : "enabled");
+                            } else if (packet.channel == 65535) {
+                                // Toggle DAC 1
+                                gpio_set_level(DAC_ENABLE_1, (value == 0) ? 1 : 0);  // Active low
+                                ESP_LOGI(TAG, "DAC 1 %s", (value == 0) ? "disabled" : "enabled");
+                            } else {
+                                ESP_LOGE(TAG, "Invalid DAC channel for toggle: %u", packet.channel);
+                                flash_led(1, 0, 0, 1000);  // Red flash
+                                break;
+                            }
+                            // Handle the toggle action here
+                            // For example, enable/disable a feature based on the value
+                            ESP_LOGI(TAG, "Toggle action executed for value: %u", value);
+                            flash_led(0, 0, 1, 500);  // Blue on success
                         }
                     }
                     break;
@@ -424,6 +494,13 @@ void app_main(void) {
     gpio_set_direction(LED_R_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_direction(LED_G_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_direction(LED_B_GPIO, GPIO_MODE_OUTPUT);
+
+    // Initialize DAC enable GPIOs
+    gpio_set_direction(DAC_ENABLE_0, GPIO_MODE_OUTPUT);
+    gpio_set_direction(DAC_ENABLE_1, GPIO_MODE_OUTPUT);
+    gpio_set_level(DAC_ENABLE_0, 1);  // Start with DACs disabled
+    gpio_set_level(DAC_ENABLE_1, 1);
+
     set_led_color(0, 0, 0);  // Start off
 
 
@@ -436,34 +513,34 @@ void app_main(void) {
 
     // Initialize SPI master for communication with FPGA
     spi_bus_config_t buscfg = {
-        .mosi_io_num = SPI_MOSI,
-        .miso_io_num = SPI_MISO,
-        .sclk_io_num = SPI_SCLK,
-        .quadwp_io_num = 22,    // QUADWP / SPI-DQ2
-        .quadhd_io_num = 21,    // SPI-DQ3
-        .max_transfer_sz = 4096,
-        .flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_QUAD | SPICOMMON_BUSFLAG_IOMUX_PINS,
-        .intr_flags = 0
-    };
-    ESP_ERROR_CHECK(spi_bus_initialize(SPI3_HOST, &buscfg, SPI_DMA_CH_AUTO));  // Enable DMA for larger transfers
+    .mosi_io_num = SPI_DQ0,
+    .miso_io_num = SPI_DQ1,
+    .quadwp_io_num = SPI_DQ2,
+    .quadhd_io_num = SPI_DQ3,  
+    .sclk_io_num = SPI_SCLK,
+    .max_transfer_sz = 4096,
+    .flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_QUAD | SPICOMMON_BUSFLAG_GPIO_PINS,
+    .intr_flags = 0
+};
+ESP_ERROR_CHECK(spi_bus_initialize(SPI3_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
 
-    spi_device_interface_config_t devcfg = {
-        .command_bits = 0,
-        .address_bits = 0,
-        .dummy_bits = 0,
-        .clock_speed_hz = SPI_FREQ_HZ,
-        .duty_cycle_pos = 0,
-        .mode = SPI_MODE,
-        .spics_io_num = SPI_CS,
-        .cs_ena_pretrans = 0,
-        .cs_ena_posttrans = 0,
-        .queue_size = 1,
-        .flags = 0,
-        .pre_cb = NULL,
-        .post_cb = NULL
-    };
-    ESP_ERROR_CHECK(spi_bus_add_device(SPI3_HOST, &devcfg, &fpga_spi));
+spi_device_interface_config_t devcfg = {
+    .command_bits = 0,
+    .address_bits = 0,
+    .dummy_bits = 0,
+    .clock_speed_hz = SPI_FREQ_HZ,
+    .duty_cycle_pos = 0,
+    .mode = SPI_MODE,
+    .spics_io_num = SPI_CS,
+    .cs_ena_pretrans = 0,
+    .cs_ena_posttrans = 0,
+    .queue_size = 10,
+    .flags = SPI_DEVICE_HALFDUPLEX,  // Add this: Enables half-duplex for multi-line
+    .pre_cb = NULL,
+    .post_cb = NULL
+};
+ESP_ERROR_CHECK(spi_bus_add_device(SPI3_HOST, &devcfg, &fpga_spi));
 
 
     // Initialize SPI bridge state

@@ -148,24 +148,26 @@ void spi_bridge_set_frequency(
         return;
     }
 
+    channel_state_t *c = (ch == SPI_CH_A) ? &chanA : &chanB;
 
-    // Convert double to uint32 Hz (clamp to max 32-bit)
-    double clamped = frequency_hz;
-    if (clamped > 4294967295.0) {
-        clamped = 4294967295.0;
+    if (c->sample_count == 0) {
+        set_error("Frequency set before waveform (sample_count=0)");
+        return;
     }
 
+    double sample_rate = frequency_hz * (double)c->sample_count;
 
-    uint32_t freq_u32 = (uint32_t)llround(clamped);
+    /* Clamp */
+    if (sample_rate > 4294967295.0) {
+        sample_rate = 4294967295.0;
+    }
 
-
-    channel_state_t *c = (ch == SPI_CH_A) ? &chanA : &chanB;
-    c->freq_hz    = freq_u32;
+    c->freq_hz = (uint32_t)llround(sample_rate);
     c->freq_valid = true;
 
-
-    ESP_LOGI(TAG, "Channel %s: stored frequency %u Hz (from %.3f)",
-             (ch == SPI_CH_A) ? "A" : "B", freq_u32, frequency_hz);
+    ESP_LOGI(TAG,
+        "Channel %s: waveform=%.3f Hz, samples=%u → sample_rate=%lu Hz",
+        (ch == SPI_CH_A) ? "A" : "B", frequency_hz, c->sample_count, (unsigned long)c->freq_hz);
 }
 
 
@@ -238,36 +240,25 @@ static int build_freq_spi_frame(spi_channel_t ch, channel_state_t *c, uint8_t *f
 
 static void send_spi_frame_bytes(const uint8_t *frame_buffer, int frame_len)
 {
-    uint8_t *dummy_rx = NULL;
-    if (frame_len > 0) {
-        dummy_rx = (uint8_t*)malloc(frame_len);
-        if (dummy_rx == NULL) {
-            set_error("Failed to allocate dummy RX buffer");
-            return;
-        }
-    }
-
+    // No dummy_rx needed anymore -- we're doing half-duplex transmit only
 
     spi_transaction_t trans = {
         .flags     = SPI_TRANS_MODE_QIO,  // Quad mode for full functionality
         .tx_buffer = frame_buffer,
-        .rx_buffer = NULL,
-        .length    = frame_len * 8,
-        .rxlength  = 0,  // Match length for full-duplex
+        .rx_buffer = NULL,                // Half-duplex: no RX
+        .length    = frame_len * 8,       // Length in bits
+        .rxlength  = 0                    // No RX length
     };
-
 
     esp_err_t ret = spi_device_transmit(fpga_spi, &trans);
     if (ret != ESP_OK) {
         set_error("SPI transmission failed: %d", ret);
+        ESP_LOGE(TAG, "SPI transmission details: frame_len=%d, flags=0x%x", frame_len, trans.flags);  // Added for debugging
     } else {
         ESP_LOGI(TAG, "Frame sent successfully (%d bytes)", frame_len);
     }
 
-
-    if (dummy_rx) {
-        free(dummy_rx);
-    }
+    // No free(dummy_rx) needed
 }
 
 

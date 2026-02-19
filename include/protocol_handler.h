@@ -12,7 +12,8 @@ typedef enum {
     TRANSMISSION_TYPE_UNKNOWN = 0,
     TRANSMISSION_TYPE_JSON    = 0x01,
     TRANSMISSION_TYPE_BYTES   = 0x02,
-    TRANSMISSION_TYPE_WAVEFORM = 0x03
+    TRANSMISSION_TYPE_WAVEFORM = 0x03,
+    TRANSMISSION_TYPE_TOGGLE  = 0x04
 } TransmissionType;
 
 /**
@@ -51,16 +52,24 @@ typedef struct {
 } WaveformPayload;
 
 /**
+ * @brief Represents a toggle payload (single byte value of 0's or 1's (255)).
+ */
+typedef struct {
+    uint8_t value; // 0 or 1
+} TogglePayload;
+
+/**
  * @brief A structure to hold the fully parsed packet data.
  * The payload is a union as it can be one of several types.
  */
 typedef struct {
     TransmissionType type;
-    uint16_t reserved;
+    uint16_t channel; // Reserved field from header
     union {
         JsonPayload     json_payload;
         BytesPayload    bytes_payload;
         WaveformPayload waveform_payload;
+        TogglePayload   toggle_payload;
     } payload;
 } ParsedPacket;
 
