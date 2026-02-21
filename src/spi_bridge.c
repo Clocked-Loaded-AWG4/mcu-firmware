@@ -360,7 +360,7 @@ static void send_complete_spi_frame(spi_channel_t ch, channel_state_t *c)
 
     ESP_LOGI(TAG, "Sending complete frame (%d bytes) for channel %s",
              frame_len, (ch == SPI_CH_A) ? "A" : "B");
-    ESP_LOG_BUFFER_HEX(TAG, frame_buffer, (frame_len < 32) ? frame_len : 32);
+    ESP_LOG_BUFFER_HEX(TAG, frame_buffer, frame_len);
 
     send_spi_frame_bytes(frame_buffer, frame_len);
 
