@@ -57,6 +57,17 @@ void wifi_init_softap(void);
 #define LED_G_GPIO 4 // 10 on board
 #define LED_B_GPIO 16 // 23 on board
 
+
+// CH 1 Status LED Pins
+#define LED_CH1_R_GPIO 4
+#define LED_CH1_G_GPIO 5
+#define LED_CH1_B_GPIO 6
+
+// CH 2 Status LED Pins
+#define LED_CH2_R_GPIO 7
+#define LED_CH2_G_GPIO 8
+#define LED_CH2_B_GPIO 9
+
 // GPIO Pins for enable lines for each DAC
 #define DAC_ENABLE_0 47 //24 on board
 #define DAC_ENABLE_1 48 // 25 on board
@@ -252,7 +263,7 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                                 } else {
                                     spi_channel_t ch = (channel == 0) ? SPI_CH_A : SPI_CH_B;
                                     spi_bridge_set_frequency(ch, freq);
-                                    spi_bridge_process_frequency(ch);
+                                    spi_bridge_process();
                                     const char *err_str = spi_bridge_get_last_error();
                                     if (err_str[0] != '\0') {
                                         ESP_LOGE(TAG, "SPI bridge error: %s", err_str);
@@ -276,9 +287,10 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                                            packet.payload.bytes_payload.length);
 
                         // We treat a TRANSMISSION_TYPE_BYTES packet as "binary frequency"
-                        // (8-byte double, same endianness as the ESP32 = little-endian).
+                        // (8-byte double, comes in as big endian).
                         if (packet.payload.bytes_payload.length == sizeof(double)) {
                             double frequency_hz;
+                            //uint64_t host = ntohll(packet.payload.bytes_payload.data[0]);
                             memcpy(&frequency_hz, packet.payload.bytes_payload.data, sizeof(double));
 
                             uint16_t channel = packet.channel;
@@ -289,7 +301,7 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                                 spi_channel_t ch = (channel == 0) ? SPI_CH_A : SPI_CH_B;
 
                                 spi_bridge_set_frequency(ch, frequency_hz);
-                                spi_bridge_process_frequency(ch);
+                                spi_bridge_process();
 
                                 const char *err_str = spi_bridge_get_last_error();
                                 if (err_str[0] != '\0') {
