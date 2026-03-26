@@ -136,6 +136,8 @@ void spi_bridge_set_waveform(
 
     ESP_LOGI(TAG, "Channel %s: stored %u samples",
              (ch == SPI_CH_A) ? "A" : "B", sample_count);
+
+    //spi_bridge_set_frequency(ch, c->freq_hz);
 }
 
 
@@ -151,10 +153,10 @@ void spi_bridge_set_frequency(
 
     channel_state_t *c = (ch == SPI_CH_A) ? &chanA : &chanB;
 
-    if (c->sample_count == 0) {
-        set_error("Frequency set before waveform (sample_count=0)");
-        return;
-    }
+    // if (c->sample_count == 0) {
+    //     set_error("Frequency set before waveform (sample_count=0)");
+    //     return;
+    // }
 
     double sample_rate = frequency_hz * (double)c->sample_count;
 

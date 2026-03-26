@@ -42,31 +42,31 @@ void wifi_init_softap(void);
 // SPI Pins
 //#define SPI_MOSI 23  // legacy pins
 //#define SPI_MISO 19
-#define SPI_SCLK 14 // 22 on board
-#define SPI_CS 15 // 8 on board
-#define SPI_DQ0 13 // 21 on board
-#define SPI_DQ1 10 // 18 on board
-#define SPI_DQ2 12 // 20 on board
-#define SPI_DQ3 11 // 19 on board
+#define SPI_SCLK 14 
+#define SPI_CS 15 
+#define SPI_DQ0 13 
+#define SPI_DQ1 10 
+#define SPI_DQ2 12 
+#define SPI_DQ3 11 
 #define SPI_FREQ_HZ 5000000  // 5 MHz
 #define SPI_MODE 0
 
 
 // RGB LED Pins
-#define LED_R_GPIO 2 // 9 on board
-#define LED_G_GPIO 4 // 10 on board
-#define LED_B_GPIO 16 // 23 on board
+#define LED_R_GPIO 21
+#define LED_G_GPIO 17
+#define LED_B_GPIO 18
 
 
 // CH 1 Status LED Pins
-#define LED_CH1_R_GPIO 4
+#define LED_CH1_R_GPIO 6
 #define LED_CH1_G_GPIO 5
-#define LED_CH1_B_GPIO 6
+#define LED_CH1_B_GPIO 4
 
 // CH 2 Status LED Pins
-#define LED_CH2_R_GPIO 7
+#define LED_CH2_R_GPIO 9
 #define LED_CH2_G_GPIO 8
-#define LED_CH2_B_GPIO 9
+#define LED_CH2_B_GPIO 7
 
 // GPIO Pins for enable lines for each DAC
 #define DAC_ENABLE_0 47 //24 on board
@@ -96,6 +96,31 @@ void flash_led(uint8_t r, uint8_t g, uint8_t b, uint32_t duration_ms) {
     set_led_color(0, 0, 0);  // Off
 }
 
+// Function to set channel status LED (green for on/enabled, red for off/disabled)
+void set_channel_status(spi_channel_t ch, bool enabled) {
+    int r_gpio, g_gpio, b_gpio;
+    if (ch == SPI_CH_A) {
+        r_gpio = LED_CH1_R_GPIO;
+        g_gpio = LED_CH1_G_GPIO;
+        b_gpio = LED_CH1_B_GPIO;
+    } else {
+        r_gpio = LED_CH2_R_GPIO;
+        g_gpio = LED_CH2_G_GPIO;
+        b_gpio = LED_CH2_B_GPIO;
+    }
+
+    if (enabled) {
+        // Green for on
+        gpio_set_level(r_gpio, 0);
+        gpio_set_level(g_gpio, 1);
+        gpio_set_level(b_gpio, 0);
+    } else {
+        // Red for off
+        gpio_set_level(r_gpio, 1);
+        gpio_set_level(g_gpio, 0);
+        gpio_set_level(b_gpio, 0);
+    }
+}
 
 /**
  * @brief Plots a horizontal ASCII representation of the waveform to the console for better readability.
@@ -291,7 +316,7 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                 break;
             }
 
-            if (channel > 1) {
+            if (channel != 0 && channel != 65535) {
                 ESP_LOGE(TAG, "Invalid channel for frequency: %hu", channel);
                 flash_led(1, 0, 0, 1000);  // Red flash
                 break;
@@ -377,10 +402,16 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                             if (packet.channel == 0) {
                                 // Toggle DAC 0
                                 gpio_set_level(DAC_ENABLE_0, (value == 0) ? 1 : 0);  // Active low
+                                spi_channel_t ch = SPI_CH_A;
+                                bool enabled = (value != 0);
+                                set_channel_status(ch, enabled);
                                 ESP_LOGI(TAG, "DAC 0 %s", (value == 0) ? "disabled" : "enabled");
                             } else if (packet.channel == 65535) {
                                 // Toggle DAC 1
                                 gpio_set_level(DAC_ENABLE_1, (value == 0) ? 1 : 0);  // Active low
+                                spi_channel_t ch = SPI_CH_B;
+                                bool enabled = (value != 0);
+                                set_channel_status(ch, enabled);
                                 ESP_LOGI(TAG, "DAC 1 %s", (value == 0) ? "disabled" : "enabled");
                             } else {
                                 ESP_LOGE(TAG, "Invalid DAC channel for toggle: %u", packet.channel);
@@ -520,7 +551,19 @@ void app_main(void) {
     gpio_set_level(DAC_ENABLE_0, 1);  // Start with DACs disabled
     gpio_set_level(DAC_ENABLE_1, 1);
 
+    // Initialize Channel Status LED GPIOs
+    gpio_set_direction(LED_CH1_R_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_direction(LED_CH1_G_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_direction(LED_CH1_B_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_direction(LED_CH2_R_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_direction(LED_CH2_G_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_direction(LED_CH2_B_GPIO, GPIO_MODE_OUTPUT);
+
     set_led_color(0, 0, 0);  // Start off
+
+    // Set initial channel status to red (disabled/off)
+    set_channel_status(SPI_CH_A, false);
+    set_channel_status(SPI_CH_B, false);
 
 
     // Start the Wi-Fi Access Point
