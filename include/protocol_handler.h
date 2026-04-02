@@ -48,7 +48,7 @@ typedef struct {
  */
 typedef struct {
     uint16_t num_points;
-    int16_t* data_points; // Array of data points
+    uint16_t* data_points; // Array of uint16_t samples
 } WaveformPayload;
 
 /**

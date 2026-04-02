@@ -125,10 +125,10 @@ void set_channel_status(spi_channel_t ch, bool enabled) {
 /**
  * @brief Plots a horizontal ASCII representation of the waveform to the console for better readability.
  *
- * @param data Pointer to the array of 16-bit signed waveform points.
+ * @param data Pointer to the array of 16-bit unsigned waveform points.
  * @param num_points Number of points in the waveform.
  */
-void plot_waveform(const int16_t *data, uint32_t num_points) {
+void plot_waveform(const uint16_t *data, uint32_t num_points) {
     if (num_points == 0) {
         ESP_LOGI(TAG, "No waveform points to plot.");
         return;
@@ -142,25 +142,23 @@ void plot_waveform(const int16_t *data, uint32_t num_points) {
 
 
     // Find min and max values
-    int16_t min_val = INT16_MAX;
-    int16_t max_val = INT16_MIN;
+    uint16_t min_val = UINT16_MAX;
+    uint16_t max_val = 0;
     for (uint32_t i = 0; i < num_points; i++) {
         if (data[i] < min_val) min_val = data[i];
         if (data[i] > max_val) max_val = data[i];
     }
 
 
-    int32_t range = (int32_t)max_val - (int32_t)min_val;
+    uint32_t range = (uint32_t)max_val - (uint32_t)min_val;
     if (range == 0) {
-        ESP_LOGI(TAG, "Constant waveform: %" PRId16, min_val);
+        ESP_LOGI(TAG, "Constant waveform: %" PRIu16, min_val);
         return;
     }
 
 
-    // Calculate zero level (midpoint for bipolar waves)
+// Midline reference for unsinged waveforms
     int zero_level = height / 2;
-    if (min_val >= 0) zero_level = height;
-    else if (max_val <= 0) zero_level = 0;
 
 
     // Buffer for each row (extra space for axes)
@@ -174,7 +172,7 @@ void plot_waveform(const int16_t *data, uint32_t num_points) {
     // Plot points and connect with lines
     int prev_y = -1;
     for (uint32_t col = 0; col < plot_points; col++) {
-        int16_t val = data[col * step];
+        uint16_t val = data[col * step];
         float norm = ((float)val - min_val) / range;
         int y = height - (int)(norm * height + 0.5f);  // Invert: top = max
 
@@ -211,7 +209,7 @@ void plot_waveform(const int16_t *data, uint32_t num_points) {
 
 
     // Log the plot
-    ESP_LOGI(TAG, "Waveform plot (min: %" PRId16 ", max: %" PRId16 ", points: %u):", min_val, max_val, num_points);
+    ESP_LOGI(TAG, "Waveform plot (min: %" PRIu16 ", max: %" PRIu16 ", points: %u):", min_val, max_val, num_points);
     for (int row = 0; row <= height; row++) {
         ESP_LOGI(TAG, "%s", lines[row]);
     }
@@ -364,18 +362,10 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                                 ESP_LOGE(TAG, "Invalid channel: %u", channel);
                                 flash_led(1, 0, 0, 1000);  // Red flash
                             } else {
-                                uint16_t *samples = (uint16_t*)malloc(w->num_points * sizeof(uint16_t));
-                                if (samples == NULL) {
-                                    ESP_LOGE(TAG, "Failed to allocate samples buffer");
-                                    flash_led(1, 0, 0, 1000);
-                                } else {
-                                    for (uint16_t i = 0; i < w->num_points; i++) {
-                                        int16_t val = w->data_points[i];
-                                        samples[i] = (uint16_t)(val + 32768);  // Scale -32768..32767 to 0..65535
-                                    }
                                     spi_channel_t ch = (channel == 0) ? SPI_CH_A : SPI_CH_B;
-                                    spi_bridge_set_waveform(ch, samples, w->num_points);
+                                    spi_bridge_set_waveform(ch, w->data_points, w->num_points);
                                     spi_bridge_process();
+                                    spi_bridge_set_frequency_points(ch, w->num_points);
                                     const char *err_str = spi_bridge_get_last_error();
                                     if (err_str[0] != '\0') {
                                         ESP_LOGE(TAG, "SPI bridge error: %s", err_str);
@@ -383,8 +373,6 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                                         spi_bridge_clear_error();
                                     } else {
                                         flash_led(0, 0, 1, 500);  // Blue on success
-                                    }
-                                    free(samples);
                                 }
                             }
                         }

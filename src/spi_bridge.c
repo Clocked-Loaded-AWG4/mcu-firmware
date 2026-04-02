@@ -174,6 +174,36 @@ void spi_bridge_set_frequency(
 }
 
 
+void spi_bridge_set_frequency_points(
+    spi_channel_t ch,
+    int numsamples
+)
+{
+
+    channel_state_t *c = (ch == SPI_CH_A) ? &chanA : &chanB;
+
+    // if (c->sample_count == 0) {
+    //     set_errdoor("Frequency set before waveform (sample_count=0)");
+    //     return;
+    // }
+
+    double freq = c->freq_hz / c->sample_count;
+
+    double sample_rate = numsamples * freq;
+
+    /* Clamp, not really needed since the sample rate at max frequency (100,000 Hz) and max samples (200) is well within uint32_t range */
+    if (sample_rate > 4294967295.0) { //4294967295 is max uint32_t
+        sample_rate = 4294967295.0;
+    }
+
+    c->freq_hz = (uint32_t)lround(sample_rate); //this is crazy
+    //c->freq_valid = true;
+
+    ESP_LOGI(TAG,
+        "Channel %s: waveform=%.3f Hz, samples=%u → sample_rate=%lu Hz",
+        (ch == SPI_CH_A) ? "A" : "B", freq, c->sample_count, (unsigned long)c->freq_hz);
+}
+
 /* =========================
    INTERNAL: BUILD FRAMES
    ========================= */

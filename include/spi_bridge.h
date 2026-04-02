@@ -23,6 +23,8 @@ void spi_bridge_set_frequency(
     double frequency_hz
 );
 
+void spi_bridge_set_frequency_points(spi_channel_t ch, int numsamples);
+
 void spi_bridge_process(void);
 
 // void spi_bridge_process_frequency(
