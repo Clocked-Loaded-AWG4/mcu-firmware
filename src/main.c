@@ -304,51 +304,51 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                     }
                     break;
                 case TRANSMISSION_TYPE_BYTES:  // New case for binary frequency
-        {
-            uint16_t channel = packet.channel;
-            BytesPayload *b = &packet.payload.bytes_payload;
+                    {
+                        uint16_t channel = packet.channel;
+                        BytesPayload *b = &packet.payload.bytes_payload;
 
-            if (b->length != 8) {
-                ESP_LOGE(TAG, "Invalid bytes payload length for frequency: %zu (expected 8)", b->length);
-                flash_led(1, 0, 0, 1000);  // Red flash on error
-                break;
-            }
+                        if (b->length != 8) {
+                            ESP_LOGE(TAG, "Invalid bytes payload length for frequency: %zu (expected 8)", b->length);
+                            flash_led(1, 0, 0, 1000);  // Red flash on error
+                            break;
+                        }
 
-            if (channel != 0 && channel != 65535) {
-                ESP_LOGE(TAG, "Invalid channel for frequency: %hu", channel);
-                flash_led(1, 0, 0, 1000);  // Red flash
-                break;
-            }
+                        if (channel != 0 && channel != 65535) {
+                            ESP_LOGE(TAG, "Invalid channel for frequency: %hu", channel);
+                            flash_led(1, 0, 0, 1000);  // Red flash
+                            break;
+                        }
 
-            // Convert from network (big-endian) byte order to host (little-endian) for double
-            uint64_t net_val = 0;
-            memcpy(&net_val, b->data, 8);  // Copy raw bytes into uint64_t (still big-endian)
+                        // Convert from network (big-endian) byte order to host (little-endian) for double
+                        uint64_t net_val = 0;
+                        memcpy(&net_val, b->data, 8);  // Copy raw bytes into uint64_t (still big-endian)
 
-            // Reverse bytes to little-endian (manual, since ESP-IDF may not have be64toh)
-            uint64_t host_val = 0;
-            for (int i = 0; i < 8; i++) {
-                ((uint8_t*)&host_val)[i] = ((uint8_t*)&net_val)[7 - i];
-            }
+                        // Reverse bytes to little-endian (manual, since ESP-IDF may not have be64toh)
+                        uint64_t host_val = 0;
+                        for (int i = 0; i < 8; i++) {
+                            ((uint8_t*)&host_val)[i] = ((uint8_t*)&net_val)[7 - i];
+                        }
 
-            // Reinterpret as double
-            double freq;
-            memcpy(&freq, &host_val, 8);
+                        // Reinterpret as double
+                        double freq;
+                        memcpy(&freq, &host_val, 8);
 
-            // Validate frequency (e.g., non-negative)
-            if (freq < 0.0 || isnan(freq) || isinf(freq)) {
-                ESP_LOGE(TAG, "Invalid frequency value: %.3f Hz", freq);
-                flash_led(1, 0, 0, 1000);  // Red flash
-                break;
-            }
+                        // Validate frequency (e.g., non-negative)
+                        if (freq < 0.0 || isnan(freq) || isinf(freq)) {
+                            ESP_LOGE(TAG, "Invalid frequency value: %.3f Hz", freq);
+                            flash_led(1, 0, 0, 1000);  // Red flash
+                            break;
+                        }
 
-            spi_channel_t ch = (channel == 0) ? SPI_CH_A : SPI_CH_B;
-            spi_bridge_set_frequency(ch, freq);
-            spi_bridge_process();  // Send update if waveform is valid
+                        spi_channel_t ch = (channel == 0) ? SPI_CH_A : SPI_CH_B;
+                        spi_bridge_set_frequency(ch, freq);
+                        spi_bridge_process();  // Send update if waveform is valid
 
-            ESP_LOGI(TAG, "Received binary frequency: %.3f Hz for channel %hu", freq, channel);
-            flash_led(0, 0, 1, 500);  // Blue on success
-        }
-        break;
+                        ESP_LOGI(TAG, "Received binary frequency: %.3f Hz for channel %hu", freq, channel);
+                        flash_led(0, 0, 1, 500);  // Blue on success
+                    }
+                    break;
                 case TRANSMISSION_TYPE_WAVEFORM:
                     {
                         WaveformPayload *w = &packet.payload.waveform_payload;
@@ -365,7 +365,6 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                                     spi_channel_t ch = (channel == 0) ? SPI_CH_A : SPI_CH_B;
                                     spi_bridge_set_waveform(ch, w->data_points, w->num_points);
                                     spi_bridge_process();
-                                    spi_bridge_set_frequency_points(ch, w->num_points);
                                     const char *err_str = spi_bridge_get_last_error();
                                     if (err_str[0] != '\0') {
                                         ESP_LOGE(TAG, "SPI bridge error: %s", err_str);
@@ -595,6 +594,8 @@ ESP_ERROR_CHECK(spi_bus_add_device(SPI3_HOST, &devcfg, &fpga_spi));
 
     // Initialize SPI bridge state
     spi_bridge_init();
+    spi_bridge_init_channel(SPI_CH_A, 1000.0);
+    spi_bridge_init_channel(SPI_CH_B, 1000.0);
 }
 
 

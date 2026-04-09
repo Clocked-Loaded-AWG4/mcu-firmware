@@ -34,17 +34,17 @@ static const char *TAG = "SPI_BRIDGE";
    ========================= */
 typedef struct {
     bool     waveform_valid;
+    bool     dirty;
     uint16_t samples[MAX_SAMPLES];
     uint16_t sample_count;
 
-
-    //bool     freq_valid;
-    uint32_t freq_hz;        // Quantized frequency in Hz for FPGA
+    double   frequency_hz;
+    uint32_t sample_rate_hz;
 } channel_state_t;
 
 
-static channel_state_t chanA = { .freq_hz = 1000 }; // startup frequency is 1000
-static channel_state_t chanB = { .freq_hz = 1000 };
+static channel_state_t chanA;
+static channel_state_t chanB;
 static char last_error[256] = "";
 
 
@@ -84,8 +84,35 @@ void spi_bridge_init(void)
 {
     memset(&chanA, 0, sizeof(chanA));
     memset(&chanB, 0, sizeof(chanB));
+    chanA.frequency_hz = 1000.0;
+    chanB.frequency_hz = 1000.0;
     spi_bridge_clear_error();
     ESP_LOGI(TAG, "SPI Bridge initialized");
+}
+
+
+void spi_bridge_init_channel(
+    spi_channel_t ch,
+    double initial_frequency_hz
+)
+{
+    if (initial_frequency_hz < 0.0) {
+        set_error("Invalid initial frequency: %.3f", initial_frequency_hz);
+        return;
+    }
+
+    channel_state_t *c = (ch == SPI_CH_A) ? &chanA : &chanB;
+    c->frequency_hz = initial_frequency_hz;
+    c->sample_rate_hz = (uint32_t)lround(c->frequency_hz * (double)200.0);
+    c->dirty = false;
+
+    ESP_LOGI(
+        TAG,
+        "Channel %s initialized: frequency=%.3f Hz, sample_rate=%lu Hz",
+        (ch == SPI_CH_A) ? "A" : "B",
+        c->frequency_hz,
+        (unsigned long)c->sample_rate_hz
+    );
 }
 
 
@@ -132,10 +159,17 @@ void spi_bridge_set_waveform(
     memcpy(c->samples, samples, sample_count * sizeof(uint16_t));
     c->sample_count   = sample_count;
     c->waveform_valid = true;
+    c->dirty = true;
+
+    double sample_rate = c->frequency_hz * (double)c->sample_count;
+    if (sample_rate > 4294967295.0) {
+        sample_rate = 4294967295.0;
+    }
+    c->sample_rate_hz = (uint32_t)lround(sample_rate);
 
 
-    ESP_LOGI(TAG, "Channel %s: stored %u samples",
-             (ch == SPI_CH_A) ? "A" : "B", sample_count);
+    ESP_LOGI(TAG, "Channel %s: stored %u samples, sample_rate=%lu Hz",
+             (ch == SPI_CH_A) ? "A" : "B", sample_count, (unsigned long)c->sample_rate_hz);
 
     //spi_bridge_set_frequency(ch, c->freq_hz);
 }
@@ -161,47 +195,17 @@ void spi_bridge_set_frequency(
     double sample_rate = frequency_hz * (double)c->sample_count;
 
     /* Clamp, not really needed since the sample rate at max frequency (100,000 Hz) and max samples (200) is well within uint32_t range */
-    if (sample_rate > 4294967295.0) { //4294967295 is max uint32_t
-        sample_rate = 4294967295.0;
+    if (sample_rate > 1000000.0) { // 1 MHz is max update of DAC
+        sample_rate = 1000000.0;
     }
 
-    c->freq_hz = (uint32_t)lround(sample_rate); //this is crazy
-    //c->freq_valid = true;
+    c->frequency_hz = frequency_hz;
+    c->sample_rate_hz = (uint32_t)lround(sample_rate);
+    c->dirty = true;
 
     ESP_LOGI(TAG,
         "Channel %s: waveform=%.3f Hz, samples=%u → sample_rate=%lu Hz",
-        (ch == SPI_CH_A) ? "A" : "B", frequency_hz, c->sample_count, (unsigned long)c->freq_hz);
-}
-
-
-void spi_bridge_set_frequency_points(
-    spi_channel_t ch,
-    int numsamples
-)
-{
-
-    channel_state_t *c = (ch == SPI_CH_A) ? &chanA : &chanB;
-
-    // if (c->sample_count == 0) {
-    //     set_errdoor("Frequency set before waveform (sample_count=0)");
-    //     return;
-    // }
-
-    double freq = c->freq_hz / c->sample_count;
-
-    double sample_rate = numsamples * freq;
-
-    /* Clamp, not really needed since the sample rate at max frequency (100,000 Hz) and max samples (200) is well within uint32_t range */
-    if (sample_rate > 4294967295.0) { //4294967295 is max uint32_t
-        sample_rate = 4294967295.0;
-    }
-
-    c->freq_hz = (uint32_t)lround(sample_rate); //this is crazy
-    //c->freq_valid = true;
-
-    ESP_LOGI(TAG,
-        "Channel %s: waveform=%.3f Hz, samples=%u → sample_rate=%lu Hz",
-        (ch == SPI_CH_A) ? "A" : "B", freq, c->sample_count, (unsigned long)c->freq_hz);
+        (ch == SPI_CH_A) ? "A" : "B", frequency_hz, c->sample_count, (unsigned long)c->sample_rate_hz);
 }
 
 /* =========================
@@ -279,7 +283,7 @@ static int build_complete_spi_frame(spi_channel_t ch, channel_state_t *c, uint8_
     frame_buffer[idx++] = (payload_len >> 0) & 0xFF;
 
     // Big-endian uint32 freq_hz
-    uint32_t f = c->freq_hz;
+    uint32_t f = c->sample_rate_hz;
     frame_buffer[idx++] = (f >> 24) & 0xFF;
     frame_buffer[idx++] = (f >> 16) & 0xFF;
     frame_buffer[idx++] = (f >>  8) & 0xFF;
@@ -380,11 +384,11 @@ static void send_spi_frame_bytes(const uint8_t *frame_buffer, int frame_len)
 //     //c->freq_valid = false;
 // }
 
-static void send_complete_spi_frame(spi_channel_t ch, channel_state_t *c)
+static bool send_complete_spi_frame(spi_channel_t ch, channel_state_t *c)
 {
     if (!c->waveform_valid) { // || !c->freq_valid
         set_error("Channel %s: no valid waveform or frequency to send", (ch == SPI_CH_A) ? "A" : "B");
-        return;
+        return false;
     }
 
     uint8_t frame_buffer[MAX_FRAME_SIZE];
@@ -396,9 +400,7 @@ static void send_complete_spi_frame(spi_channel_t ch, channel_state_t *c)
 
     send_spi_frame_bytes(frame_buffer, frame_len);
 
-    // Clear flags after sending
-    //c->waveform_valid = false;
-    //c->freq_valid = false;
+    return true;
 }
 
 
@@ -409,20 +411,17 @@ static void send_complete_spi_frame(spi_channel_t ch, channel_state_t *c)
 
 void spi_bridge_process(void)
 {
-    // Send frequency first, then waveform if both pending
-    // if (chanA.freq_valid) {
-    //     send_freq_spi_frame(SPI_CH_A, &chanA);
-    // }
-    if (chanA.waveform_valid) {
-        send_complete_spi_frame(SPI_CH_A, &chanA);
+    if (chanA.dirty) {
+        if (send_complete_spi_frame(SPI_CH_A, &chanA)) {
+            chanA.dirty = false;
+        }
     }
 
 
-    // if (chanB.freq_valid) {
-    //     send_freq_spi_frame(SPI_CH_B, &chanB);
-    // }
-    if (chanB.waveform_valid) {
-        send_complete_spi_frame(SPI_CH_B, &chanB);
+    if (chanB.dirty) {
+        if (send_complete_spi_frame(SPI_CH_B, &chanB)) {
+            chanB.dirty = false;
+        }
     }
 }
 
