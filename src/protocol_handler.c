@@ -34,7 +34,7 @@ static ProtocolError handle_waveform_payload(const uint8_t* payload, size_t payl
     num_points = ntohs(num_points); // Convert from big-endian
 
     // Validate that the payload size matches the expected size
-    size_t expected_size = sizeof(uint16_t) + (size_t)num_points * sizeof(int16_t);
+    size_t expected_size = sizeof(uint16_t) + (size_t)num_points * sizeof(uint16_t);
     if (payload_size != expected_size) {
         return ERROR_INVALID_PAYLOAD_FORMAT;
     }
@@ -47,15 +47,15 @@ static ProtocolError handle_waveform_payload(const uint8_t* payload, size_t payl
     }
 
     // Allocate memory for the data points
-    out_waveform->data_points = (int16_t*)malloc(num_points * sizeof(int16_t));
+    out_waveform->data_points = (uint16_t*)malloc(num_points * sizeof(uint16_t));
     if (!out_waveform->data_points) {
         return ERROR_MEMORY_ALLOCATION_FAILED;
     }
 
     const uint8_t* data_stream = payload + sizeof(uint16_t);
     for (uint16_t i = 0; i < num_points; ++i) {
-        int16_t point;
-        memcpy(&point, data_stream + (i * sizeof(int16_t)), sizeof(int16_t));
+        uint16_t point;
+        memcpy(&point, data_stream + (i * sizeof(uint16_t)), sizeof(uint16_t));
         out_waveform->data_points[i] = ntohs(point); // Convert each point
     }
 

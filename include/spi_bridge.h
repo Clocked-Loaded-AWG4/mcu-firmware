@@ -12,6 +12,11 @@ typedef enum {
 
 void spi_bridge_init(void);
 
+void spi_bridge_init_channel(
+    spi_channel_t ch,
+    double initial_frequency_hz
+);
+
 void spi_bridge_set_waveform(
     spi_channel_t ch,
     const uint16_t *samples,
@@ -25,9 +30,9 @@ void spi_bridge_set_frequency(
 
 void spi_bridge_process(void);
 
-void spi_bridge_process_frequency(
-    spi_channel_t ch
-);
+// void spi_bridge_process_frequency(
+//     spi_channel_t ch
+// );
 
 const char* spi_bridge_get_last_error(void);
 

@@ -42,20 +42,31 @@ void wifi_init_softap(void);
 // SPI Pins
 //#define SPI_MOSI 23  // legacy pins
 //#define SPI_MISO 19
-#define SPI_SCLK 14 // 22 on board
-#define SPI_CS 15 // 8 on board
-#define SPI_DQ0 13 // 21 on board
-#define SPI_DQ1 10 // 18 on board
-#define SPI_DQ2 12 // 20 on board
-#define SPI_DQ3 11 // 19 on board
+#define SPI_SCLK 14 
+#define SPI_CS 15 
+#define SPI_DQ0 13 
+#define SPI_DQ1 10 
+#define SPI_DQ2 12 
+#define SPI_DQ3 11 
 #define SPI_FREQ_HZ 5000000  // 5 MHz
 #define SPI_MODE 0
 
 
 // RGB LED Pins
-#define LED_R_GPIO 2 // 9 on board
-#define LED_G_GPIO 4 // 10 on board
-#define LED_B_GPIO 16 // 23 on board
+#define LED_R_GPIO 21
+#define LED_G_GPIO 17
+#define LED_B_GPIO 18
+
+
+// CH 1 Status LED Pins
+#define LED_CH1_R_GPIO 6
+#define LED_CH1_G_GPIO 5
+#define LED_CH1_B_GPIO 4
+
+// CH 2 Status LED Pins
+#define LED_CH2_R_GPIO 9
+#define LED_CH2_G_GPIO 8
+#define LED_CH2_B_GPIO 7
 
 // GPIO Pins for enable lines for each DAC
 #define DAC_ENABLE_0 47 //24 on board
@@ -85,14 +96,39 @@ void flash_led(uint8_t r, uint8_t g, uint8_t b, uint32_t duration_ms) {
     set_led_color(0, 0, 0);  // Off
 }
 
+// Function to set channel status LED (green for on/enabled, red for off/disabled)
+void set_channel_status(spi_channel_t ch, bool enabled) {
+    int r_gpio, g_gpio, b_gpio;
+    if (ch == SPI_CH_A) {
+        r_gpio = LED_CH1_R_GPIO;
+        g_gpio = LED_CH1_G_GPIO;
+        b_gpio = LED_CH1_B_GPIO;
+    } else {
+        r_gpio = LED_CH2_R_GPIO;
+        g_gpio = LED_CH2_G_GPIO;
+        b_gpio = LED_CH2_B_GPIO;
+    }
+
+    if (enabled) {
+        // Green for on
+        gpio_set_level(r_gpio, 0);
+        gpio_set_level(g_gpio, 1);
+        gpio_set_level(b_gpio, 0);
+    } else {
+        // Red for off
+        gpio_set_level(r_gpio, 1);
+        gpio_set_level(g_gpio, 0);
+        gpio_set_level(b_gpio, 0);
+    }
+}
 
 /**
  * @brief Plots a horizontal ASCII representation of the waveform to the console for better readability.
  *
- * @param data Pointer to the array of 16-bit signed waveform points.
+ * @param data Pointer to the array of 16-bit unsigned waveform points.
  * @param num_points Number of points in the waveform.
  */
-void plot_waveform(const int16_t *data, uint32_t num_points) {
+void plot_waveform(const uint16_t *data, uint32_t num_points) {
     if (num_points == 0) {
         ESP_LOGI(TAG, "No waveform points to plot.");
         return;
@@ -106,25 +142,23 @@ void plot_waveform(const int16_t *data, uint32_t num_points) {
 
 
     // Find min and max values
-    int16_t min_val = INT16_MAX;
-    int16_t max_val = INT16_MIN;
+    uint16_t min_val = UINT16_MAX;
+    uint16_t max_val = 0;
     for (uint32_t i = 0; i < num_points; i++) {
         if (data[i] < min_val) min_val = data[i];
         if (data[i] > max_val) max_val = data[i];
     }
 
 
-    int32_t range = (int32_t)max_val - (int32_t)min_val;
+    uint32_t range = (uint32_t)max_val - (uint32_t)min_val;
     if (range == 0) {
-        ESP_LOGI(TAG, "Constant waveform: %" PRId16, min_val);
+        ESP_LOGI(TAG, "Constant waveform: %" PRIu16, min_val);
         return;
     }
 
 
-    // Calculate zero level (midpoint for bipolar waves)
+// Midline reference for unsinged waveforms
     int zero_level = height / 2;
-    if (min_val >= 0) zero_level = height;
-    else if (max_val <= 0) zero_level = 0;
 
 
     // Buffer for each row (extra space for axes)
@@ -138,7 +172,7 @@ void plot_waveform(const int16_t *data, uint32_t num_points) {
     // Plot points and connect with lines
     int prev_y = -1;
     for (uint32_t col = 0; col < plot_points; col++) {
-        int16_t val = data[col * step];
+        uint16_t val = data[col * step];
         float norm = ((float)val - min_val) / range;
         int y = height - (int)(norm * height + 0.5f);  // Invert: top = max
 
@@ -175,7 +209,7 @@ void plot_waveform(const int16_t *data, uint32_t num_points) {
 
 
     // Log the plot
-    ESP_LOGI(TAG, "Waveform plot (min: %" PRId16 ", max: %" PRId16 ", points: %u):", min_val, max_val, num_points);
+    ESP_LOGI(TAG, "Waveform plot (min: %" PRIu16 ", max: %" PRIu16 ", points: %u):", min_val, max_val, num_points);
     for (int row = 0; row <= height; row++) {
         ESP_LOGI(TAG, "%s", lines[row]);
     }
@@ -252,7 +286,7 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                                 } else {
                                     spi_channel_t ch = (channel == 0) ? SPI_CH_A : SPI_CH_B;
                                     spi_bridge_set_frequency(ch, freq);
-                                    spi_bridge_process_frequency(ch);
+                                    spi_bridge_process();
                                     const char *err_str = spi_bridge_get_last_error();
                                     if (err_str[0] != '\0') {
                                         ESP_LOGE(TAG, "SPI bridge error: %s", err_str);
@@ -269,42 +303,50 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                         }
                     }
                     break;
-                case TRANSMISSION_TYPE_BYTES:
+                case TRANSMISSION_TYPE_BYTES:  // New case for binary frequency
                     {
-                        ESP_LOGI(TAG, "Received bytes (%zu bytes)", packet.payload.bytes_payload.length);
-                        ESP_LOG_BUFFER_HEX(TAG, packet.payload.bytes_payload.data,
-                                           packet.payload.bytes_payload.length);
+                        uint16_t channel = packet.channel;
+                        BytesPayload *b = &packet.payload.bytes_payload;
 
-                        // We treat a TRANSMISSION_TYPE_BYTES packet as "binary frequency"
-                        // (8-byte double, same endianness as the ESP32 = little-endian).
-                        if (packet.payload.bytes_payload.length == sizeof(double)) {
-                            double frequency_hz;
-                            memcpy(&frequency_hz, packet.payload.bytes_payload.data, sizeof(double));
-
-                            uint16_t channel = packet.channel;
-                            if (channel > 1) {
-                                ESP_LOGE(TAG, "Invalid channel in bytes frequency: %hu", channel);
-                                flash_led(1, 0, 0, 1000);
-                            } else {
-                                spi_channel_t ch = (channel == 0) ? SPI_CH_A : SPI_CH_B;
-
-                                spi_bridge_set_frequency(ch, frequency_hz);
-                                spi_bridge_process_frequency(ch);
-
-                                const char *err_str = spi_bridge_get_last_error();
-                                if (err_str[0] != '\0') {
-                                    ESP_LOGE(TAG, "SPI bridge error: %s", err_str);
-                                    flash_led(1, 0, 0, 1000);
-                                    spi_bridge_clear_error();
-                                } else {
-                                    flash_led(0, 0, 1, 500);  // Blue = success
-                                }
-                            }
-                        } else {
-                            ESP_LOGE(TAG, "Bytes payload length %zu is not 8 (expected double frequency)",
-                                     packet.payload.bytes_payload.length);
-                            flash_led(1, 0, 0, 1000);
+                        if (b->length != 8) {
+                            ESP_LOGE(TAG, "Invalid bytes payload length for frequency: %zu (expected 8)", b->length);
+                            flash_led(1, 0, 0, 1000);  // Red flash on error
+                            break;
                         }
+
+                        if (channel != 0 && channel != 65535) {
+                            ESP_LOGE(TAG, "Invalid channel for frequency: %hu", channel);
+                            flash_led(1, 0, 0, 1000);  // Red flash
+                            break;
+                        }
+
+                        // Convert from network (big-endian) byte order to host (little-endian) for double
+                        uint64_t net_val = 0;
+                        memcpy(&net_val, b->data, 8);  // Copy raw bytes into uint64_t (still big-endian)
+
+                        // Reverse bytes to little-endian (manual, since ESP-IDF may not have be64toh)
+                        uint64_t host_val = 0;
+                        for (int i = 0; i < 8; i++) {
+                            ((uint8_t*)&host_val)[i] = ((uint8_t*)&net_val)[7 - i];
+                        }
+
+                        // Reinterpret as double
+                        double freq;
+                        memcpy(&freq, &host_val, 8);
+
+                        // Validate frequency (e.g., non-negative)
+                        if (freq < 0.0 || isnan(freq) || isinf(freq)) {
+                            ESP_LOGE(TAG, "Invalid frequency value: %.3f Hz", freq);
+                            flash_led(1, 0, 0, 1000);  // Red flash
+                            break;
+                        }
+
+                        spi_channel_t ch = (channel == 0) ? SPI_CH_A : SPI_CH_B;
+                        spi_bridge_set_frequency(ch, freq);
+                        spi_bridge_process();  // Send update if waveform is valid
+
+                        ESP_LOGI(TAG, "Received binary frequency: %.3f Hz for channel %hu", freq, channel);
+                        flash_led(0, 0, 1, 500);  // Blue on success
                     }
                     break;
                 case TRANSMISSION_TYPE_WAVEFORM:
@@ -320,17 +362,8 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                                 ESP_LOGE(TAG, "Invalid channel: %u", channel);
                                 flash_led(1, 0, 0, 1000);  // Red flash
                             } else {
-                                uint16_t *samples = (uint16_t*)malloc(w->num_points * sizeof(uint16_t));
-                                if (samples == NULL) {
-                                    ESP_LOGE(TAG, "Failed to allocate samples buffer");
-                                    flash_led(1, 0, 0, 1000);
-                                } else {
-                                    for (uint16_t i = 0; i < w->num_points; i++) {
-                                        int16_t val = w->data_points[i];
-                                        samples[i] = (uint16_t)(val + 32768);  // Scale -32768..32767 to 0..65535
-                                    }
                                     spi_channel_t ch = (channel == 0) ? SPI_CH_A : SPI_CH_B;
-                                    spi_bridge_set_waveform(ch, samples, w->num_points);
+                                    spi_bridge_set_waveform(ch, w->data_points, w->num_points);
                                     spi_bridge_process();
                                     const char *err_str = spi_bridge_get_last_error();
                                     if (err_str[0] != '\0') {
@@ -339,8 +372,6 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                                         spi_bridge_clear_error();
                                     } else {
                                         flash_led(0, 0, 1, 500);  // Blue on success
-                                    }
-                                    free(samples);
                                 }
                             }
                         }
@@ -358,10 +389,16 @@ static esp_err_t websocket_handler(httpd_req_t *req) {
                             if (packet.channel == 0) {
                                 // Toggle DAC 0
                                 gpio_set_level(DAC_ENABLE_0, (value == 0) ? 1 : 0);  // Active low
+                                spi_channel_t ch = SPI_CH_A;
+                                bool enabled = (value != 0);
+                                set_channel_status(ch, enabled);
                                 ESP_LOGI(TAG, "DAC 0 %s", (value == 0) ? "disabled" : "enabled");
                             } else if (packet.channel == 65535) {
                                 // Toggle DAC 1
                                 gpio_set_level(DAC_ENABLE_1, (value == 0) ? 1 : 0);  // Active low
+                                spi_channel_t ch = SPI_CH_B;
+                                bool enabled = (value != 0);
+                                set_channel_status(ch, enabled);
                                 ESP_LOGI(TAG, "DAC 1 %s", (value == 0) ? "disabled" : "enabled");
                             } else {
                                 ESP_LOGE(TAG, "Invalid DAC channel for toggle: %u", packet.channel);
@@ -501,7 +538,19 @@ void app_main(void) {
     gpio_set_level(DAC_ENABLE_0, 1);  // Start with DACs disabled
     gpio_set_level(DAC_ENABLE_1, 1);
 
+    // Initialize Channel Status LED GPIOs
+    gpio_set_direction(LED_CH1_R_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_direction(LED_CH1_G_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_direction(LED_CH1_B_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_direction(LED_CH2_R_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_direction(LED_CH2_G_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_direction(LED_CH2_B_GPIO, GPIO_MODE_OUTPUT);
+
     set_led_color(0, 0, 0);  // Start off
+
+    // Set initial channel status to red (disabled/off)
+    set_channel_status(SPI_CH_A, false);
+    set_channel_status(SPI_CH_B, false);
 
 
     // Start the Wi-Fi Access Point
@@ -545,6 +594,8 @@ ESP_ERROR_CHECK(spi_bus_add_device(SPI3_HOST, &devcfg, &fpga_spi));
 
     // Initialize SPI bridge state
     spi_bridge_init();
+    spi_bridge_init_channel(SPI_CH_A, 1000.0);
+    spi_bridge_init_channel(SPI_CH_B, 1000.0);
 }
 
 
